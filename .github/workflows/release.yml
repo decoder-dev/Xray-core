@@ -54,24 +54,48 @@ jobs:
             fi
           done
 
-      - name: Trigger Asset Update Workflow if Assets Missing
+      - name: Download missing geodat inline
         if: steps.check-assets.outputs.missing == 'true'
-        uses: actions/github-script@v9
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { owner, repo } = context.repo;
-            await github.rest.actions.createWorkflowDispatch({
-              owner,
-              repo,
-              workflow_id: 'scheduled-assets-update.yml',
-              ref: context.ref
-            });
-            console.log('Triggered scheduled-assets-update.yml due to missing assets on branch:', context.ref);
+        run: |
+          set -e
+          mkdir -p resources
+          if [ ! -s resources/geoip.dat ]; then
+            curl -fsSL -o resources/geoip.dat \
+              https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
+          fi
+          if [ ! -s resources/geosite.dat ]; then
+            curl -fsSL -o resources/geosite.dat \
+              https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
+          fi
 
-      - name: Sleep for 90 seconds if Assets Missing
+      - name: Download missing wintun inline (Windows builds)
         if: steps.check-assets.outputs.missing == 'true'
-        run: sleep 90
+        run: |
+          set -e
+          mkdir -p resources/wintun/bin
+          if [ ! -s resources/wintun/bin/amd64/wintun.dll ]; then
+            curl -fsSL -o /tmp/wintun.zip \
+              https://www.wintun.net/builds/wintun-0.14.1.zip
+            unzip -q /tmp/wintun.zip -d /tmp/wintun
+            install -D /tmp/wintun/wintun/bin/amd64/wintun.dll resources/wintun/bin/amd64/wintun.dll
+            install -D /tmp/wintun/wintun/bin/x86/wintun.dll resources/wintun/bin/x86/wintun.dll
+            install -D /tmp/wintun/wintun/bin/arm64/wintun.dll resources/wintun/bin/arm64/wintun.dll
+            cp /tmp/wintun/wintun/LICENSE.txt resources/wintun/LICENSE.txt
+          fi
+
+      - name: Save Geodat Cache
+        if: steps.check-assets.outputs.missing == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: resources
+          key: xray-geodat-${{ github.run_id }}
+
+      - name: Save Wintun Cache
+        if: steps.check-assets.outputs.missing == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: resources
+          key: xray-wintun-${{ github.run_id }}
 
   build:
     needs: check-assets
